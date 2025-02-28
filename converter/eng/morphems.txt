@@ -1,0 +1,9 @@
+﻿%1=aeiouy
+%2=bcdfghjklmnpqrstvwxz
+^?s=.
+^ies=y
+^?d=.
+^ied=y
+^?ing=.
+^2ing=.e
+^?ly=.
