@@ -4,7 +4,7 @@ import html
 import multiprocessing
 import tempfile
 import os
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set
 from pathlib import Path
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -22,6 +22,57 @@ DEFAULT_EXCLUDED_SECTIONS = {
     "Translations",
     "Miscellany",
     "See also",
+}
+
+# Precompile regex patterns for text cleaning (optimization #1)
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+PAREN_SPACE_START_PATTERN = re.compile(r"\(\s+")
+PAREN_SPACE_END_PATTERN = re.compile(r"\s+\)")
+SPACE_PUNCT_PATTERN = re.compile(r"\s+([,.;:!?])")
+MULTI_SPACE_PATTERN = re.compile(r"\s+")
+
+# Script definitions using Unicode ranges
+SCRIPT_RANGES = {
+    "latin": [
+        (0x0041, 0x005A),  # Latin uppercase
+        (0x0061, 0x007A),  # Latin lowercase
+        (0x00C0, 0x00FF),  # Latin-1 Supplement
+        (0x0100, 0x017F),  # Latin Extended-A
+        (0x0180, 0x024F),  # Latin Extended-B
+    ],
+    "cyrillic": [
+        (0x0400, 0x04FF),  # Cyrillic
+        (0x0500, 0x052F),  # Cyrillic Supplement
+    ],
+    "greek": [
+        (0x0370, 0x03FF),  # Greek and Coptic
+    ],
+    "chinese": [
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+        (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
+    ],
+    "japanese": [
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs (shared with Chinese)
+    ],
+    "korean": [
+        (0xAC00, 0xD7AF),  # Hangul Syllables
+        (0x1100, 0x11FF),  # Hangul Jamo
+    ],
+    "arabic": [
+        (0x0600, 0x06FF),  # Arabic
+        (0x0750, 0x077F),  # Arabic Supplement
+    ],
+    "hebrew": [
+        (0x0590, 0x05FF),  # Hebrew
+    ],
+    "devanagari": [
+        (0x0900, 0x097F),  # Devanagari (Hindi, Sanskrit, etc.)
+    ],
+    "thai": [
+        (0x0E00, 0x0E7F),  # Thai
+    ],
 }
 
 
@@ -91,7 +142,7 @@ def parse_arguments():
         "--batch-size",
         type=int,
         default=10000,
-        help="Number of files to process in each batch (default: 1000)",
+        help="Number of files to process in each batch (default: 10000)",
     )
     parser.add_argument(
         "--temp-dir",
@@ -103,7 +154,106 @@ def parse_arguments():
         default=list(DEFAULT_EXCLUDED_SECTIONS),
         help="Sections to exclude from extraction (default: Translations, etc.)",
     )
+
+    # Argument for script filtering
+    parser.add_argument(
+        "--scripts",
+        nargs="+",
+        choices=list(SCRIPT_RANGES.keys()) + ["all"],
+        default=["all"],
+        help="Filter files by script (e.g., latin, cyrillic, greek, chinese, japanese)",
+    )
+
     return parser.parse_args()
+
+
+def is_in_script(char: str, script: str) -> bool:
+    """
+    Check if a character belongs to a specific script.
+
+    Args:
+        char: Character to check
+        script: Script name (e.g., 'latin', 'cyrillic')
+
+    Returns:
+        True if the character belongs to the script, False otherwise
+    """
+    if script not in SCRIPT_RANGES:
+        return False
+
+    code_point = ord(char)
+
+    for start, end in SCRIPT_RANGES[script]:
+        if start <= code_point <= end:
+            return True
+
+    return False
+
+
+def get_word_script(word: str) -> str:
+    """
+    Determine the dominant script of a word.
+
+    Args:
+        word: Word to analyze
+
+    Returns:
+        Name of the dominant script or "unknown"
+    """
+    # Remove any file extension if present
+    word = Path(word).stem
+
+    # Count characters by script
+    script_counts = {script: 0 for script in SCRIPT_RANGES.keys()}
+
+    for char in word:
+        if not char.isalnum():
+            continue  # Skip non-alphanumeric characters
+
+        for script in SCRIPT_RANGES.keys():
+            if is_in_script(char, script):
+                script_counts[script] += 1
+                break
+
+    # Find the dominant script
+    if not script_counts:
+        return "unknown"
+
+    dominant_script = max(script_counts.items(), key=lambda x: x[1])
+
+    # Return the script name if there are any characters in that script
+    if dominant_script[1] > 0:
+        return dominant_script[0]
+
+    return "unknown"
+
+
+def is_file_in_scripts(filename: str, scripts: List[str]) -> bool:
+    """
+    Check if a file should be processed based on its script.
+
+    Args:
+        filename: Name of the file
+        scripts: List of scripts to include
+
+    Returns:
+        True if the file should be processed, False otherwise
+    """
+    # If all scripts are requested, include everything
+    if "all" in scripts:
+        return True
+
+    # Get the dominant script of the filename
+    word = filename
+
+    # Optimization: Quick check of first character for most cases
+    if word and any(is_in_script(word[0], script) for script in scripts):
+        return True
+
+    # Fallback to full word analysis for edge cases
+    word_script = get_word_script(word)
+
+    return word_script in scripts
 
 
 def process_file(
@@ -168,8 +318,16 @@ def process_file_batch(
 def extract_definitions(
     section: BeautifulSoup, excluded_sections: set
 ) -> Dict[str, List[str]]:
-    """Extract parts of speech and definitions from language section."""
+    """
+    Extract parts of speech and definitions from language section with early filtering.
+
+    Optimization #2: Add early filtering to quickly skip sections without definitions
+    """
     definitions = {}
+
+    # Early check: If there are no ordered lists, there are probably no definitions
+    if not section.find_all("ol"):
+        return definitions
 
     for pos_section in section.find_all(DETAILS_TAG, {DATA_LEVEL_ATTR: "3"}):
         heading = pos_section.find(["h3", "h4"])
@@ -177,15 +335,26 @@ def extract_definitions(
             continue
 
         pos = clean_text(heading.get_text(strip=True))
+        # Early filtering: Skip excluded sections immediately
         if pos in excluded_sections:
             continue
 
-        def_items = [
-            clean_text(li.get_text(" ", strip=True))
-            for ol in pos_section.find_all("ol")
-            for li in ol.find_all("li")
-        ]
+        # Early check: Skip sections without ordered lists (no definitions)
+        ol_lists = pos_section.find_all("ol")
+        if not ol_lists:
+            continue
 
+        # Extract definition items
+        def_items = []
+        for ol in ol_lists:
+            li_items = ol.find_all("li")
+            # Only process if there are list items
+            if li_items:
+                def_items.extend(
+                    [clean_text(li.get_text(" ", strip=True)) for li in li_items]
+                )
+
+        # Only add non-empty definitions
         if def_items:
             definitions[pos] = def_items
 
@@ -193,22 +362,35 @@ def extract_definitions(
 
 
 def clean_text(text: str) -> str:
-    """Clean and normalize text content."""
-    # Remove HTML tags if any remain
-    text = re.sub(r"<[^>]+>", "", text)
+    """
+    Clean and normalize text content using precompiled regex patterns.
+
+    Optimization #1: Use precompiled regex patterns and efficient string operations
+    """
+    # Skip processing for empty text
+    if not text:
+        return ""
+
+    # First strip whitespace to handle the simple case efficiently
+    text = text.strip()
+
+    # Optimization: Skip regex processing if no HTML tags are present
+    if "<" in text:
+        # Remove HTML tags
+        text = HTML_TAG_PATTERN.sub("", text)
 
     # Remove spaces around parentheses
-    text = re.sub(r"\(\s+", "(", text)
-    text = re.sub(r"\s+\)", ")", text)
+    text = PAREN_SPACE_START_PATTERN.sub("(", text)
+    text = PAREN_SPACE_END_PATTERN.sub(")", text)
 
-    # Remove spaces before punctuation (commas, periods, colons, semicolons, etc.)
-    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    # Remove spaces before punctuation
+    text = SPACE_PUNCT_PATTERN.sub(r"\1", text)
 
-    # Normalize whitespace (replace multiple spaces with a single space)
-    text = re.sub(r"\s+", " ", text.strip())
+    # Normalize whitespace
+    text = MULTI_SPACE_PATTERN.sub(" ", text)
 
     # Handle special characters and entities
-    text = html.unescape(text)  # Convert HTML entities
+    text = html.unescape(text)
 
     return text
 
@@ -299,7 +481,7 @@ def get_language_name(lang_code):
 
 
 def main():
-    """Main processing pipeline with single-phase approach."""
+    """Main processing pipeline with optimizations."""
     setup_logger()
     args = parse_arguments()
 
@@ -316,12 +498,24 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     # Get all files without extensions (ignoring hidden files)
-    files = [
+    all_files = [
         f
         for f in input_dir.iterdir()
         if f.is_file() and not f.suffix and not f.name.startswith(".")
     ]
-    logging.info(f"Found {len(files)} files to process")
+    logging.info(f"Found {len(all_files)} files in total")
+
+    # Filter files by script if needed
+    if "all" not in args.scripts:
+        logging.info(f"Filtering files by scripts: {', '.join(args.scripts)}")
+
+        # Apply script filtering
+        files = [f for f in all_files if is_file_in_scripts(f.name, args.scripts)]
+
+        logging.info(f"After script filtering: {len(files)} files remaining")
+    else:
+        files = all_files
+        logging.info("Processing all scripts")
 
     # Apply limit if specified
     if args.limit > 0 and args.limit < len(files):

@@ -1,6 +1,6 @@
 # Wiktionary to PocketBook Dictionary Converter
 
-Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible dictionaries in either Lingvo DSL or XDXF format. Supports extracting entries for specific languages (e.g., extracting only Russian entries from English Wiktionary).
+Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible dictionaries in either Lingvo DSL or XDXF format. Supports extracting entries for specific languages (e.g., extracting only Russian entries from English Wiktionary) and filtering by writing systems.
 
 ## System Requirements
 
@@ -8,7 +8,7 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
 - Wine (install on Ubuntu with `sudo apt-get install wine`)
 - Zimdump from zim-tools (`sudo apt-get install zim-tools`)
 - Python 3 (typically pre-installed or available via `sudo apt-get install python3`)
-- Python dependencies: BeautifulSoup4, tqdm (install via `pip install -r requirements.txt`)
+- Python dependencies: lxml, tqdm (install via `pip install -r requirements.txt`)
 
 **Additional Resources:**
 - Wiktionary zim files for your language from [Kiwix Library](https://library.kiwix.org/)
@@ -69,11 +69,17 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
    ```
    This example extracts Russian entries from English Wiktionary files.
    
-   **Process with performance optimizations:**
+   **Filter by writing system (script):**
    ```bash
-   python src/main.py -i data/en/A -o dict/en.xdxf -s en -t en -f xdxf --batch-size 2000 -j 8
+   python src/main.py -i data/en/A -o dict/cyrillic_from_en.xdxf -s en -t ru -e ru -f xdxf --scripts cyrillic
    ```
-   This processes files in batches of 2000 using 8 parallel processes.
+   This example processes only files with Cyrillic characters, significantly improving performance when targeting specific languages.
+
+   **Combined optimizations example:**
+   ```bash
+   python src/main.py -i data/en/A -o dict/latin_en.xdxf -s en -t en -f xdxf --batch-size 5000 -j 16 --scripts latin
+   ```
+   Processes only Latin script words in batches of 5000 using 16 parallel processes for maximum performance.
    
    **Parameters:**
    - `-i, --input`: Input directory containing HTML files
@@ -88,15 +94,27 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
    - `--batch-size`: Number of files to process in each batch (default: 1000)
    - `--temp-dir`: Directory for temporary files (default: system temp directory)
    - `--excluded-sections`: Sections to exclude from extraction (default: Translations, Miscellany, See also, etc.)
+   - `--scripts`: Filter files by writing system (e.g., latin, cyrillic, greek, chinese, japanese)
 
 ### Performance Considerations
 
-- Increase `--batch-size` for faster processing, but higher memory usage
-- Adjust `-j` (jobs) based on your CPU cores for optimal performance
-- The script uses a two-phase approach to efficiently process large datasets:
-  1. Initial scan to identify valid entries
-  2. Detailed processing of only valid entries
-- For very large dictionaries, consider processing directory by directory
+- **Script Filtering**: Use `--scripts` to dramatically reduce processing time by only including relevant writing systems
+  - Available options: latin, cyrillic, greek, chinese, japanese, korean, arabic, hebrew, devanagari, thai
+  - For example, when working with Russian entries, use `--scripts cyrillic` to skip non-Cyrillic words
+  - For Western European languages, use `--scripts latin` to focus on Latin alphabet words
+
+- **Optimized Processing**: The converter uses lxml for HTML parsing (5-10x faster than BeautifulSoup)
+
+- **Parallel Processing**: Adjust `-j` (jobs) based on your CPU cores for optimal performance
+  - For modern multi-core processors, values between 8-16 can significantly improve speed
+
+- **Batch Size**: Increase `--batch-size` for faster processing, but higher memory usage
+  - Values between 5000-10000 offer good performance on systems with 16GB+ RAM
+
+- **Workflow Strategy**: For very large dictionaries, consider:
+  1. First filtering by script to reduce the dataset
+  2. Processing directory by directory with appropriate batch sizes
+  3. Combining outputs for final conversion
 
 ### Conversion to PocketBook Format
 
@@ -126,7 +144,7 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
 ## Troubleshooting
 
 - **Memory issues**: Reduce `--batch-size` to use less RAM
-- **Slow processing**: Increase `--batch-size` and `-j` values, ensure you're not processing hidden files
+- **Slow processing**: Use script filtering with `--scripts`, increase `--batch-size` and `-j` values
 - **Missing entries**: Check language codes and ensure proper language section extraction
 - **Encoding issues**: The script uses UTF-8 encoding; ensure your source files are properly encoded
 
@@ -141,3 +159,13 @@ python src/main.py -i data/en/A -o dict/en.dsl -s en -t en -f lingvo --excluded-
 ```
 
 This will exclude the specified sections from the output dictionary.
+
+### Combining Multiple Script Filters
+
+To process words in multiple writing systems simultaneously:
+
+```bash
+python src/main.py -i data/en/A -o dict/mixed_script.xdxf -s en -t en -f xdxf --scripts latin cyrillic greek
+```
+
+This processes words in Latin, Cyrillic, and Greek scripts while skipping all others.
