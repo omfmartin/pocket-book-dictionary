@@ -199,7 +199,7 @@ def main():
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Get all files without extensions (ignoring hidden files)
-    logging.info("Getting all files")
+    logging.info(f"Listing all files in {input_dir}")
     all_files = [
         f
         for f in input_dir.iterdir()
@@ -208,7 +208,6 @@ def main():
     logging.info(f"Found {len(all_files)} files in total")
 
     # Filter files by script if needed
-    script_start_time = time.time()
     if "all" not in args.scripts:
         logging.info(f"Filtering files by scripts: {', '.join(args.scripts)}")
 

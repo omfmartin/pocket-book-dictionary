@@ -26,7 +26,7 @@ def extract_definitions(
     Returns:
         Dictionary of part-of-speech -> definitions
     """
-    definitions = {}
+    definitions: Dict[str, List[str]] = {}
 
     # Early check: If there are no ordered lists, there are probably no definitions
     ol_elements = section.xpath(".//ol")
