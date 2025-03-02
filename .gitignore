@@ -5,6 +5,7 @@ venv/
 *.dsl
 *.dic
 *.xdxf
+*.txt
 __pycache__
 *.egg-info/
 
