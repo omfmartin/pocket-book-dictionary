@@ -13,7 +13,7 @@ from .parsers import extract_virtual_section
 
 
 def extract_definitions(
-    section: etree._Element, excluded_sections: Set[str], debug: bool = False
+    section: etree._Element, excluded_sections: Set[str]
 ) -> Dict[str, List[str]]:
     """
     Extract parts of speech and definitions from language section with early filtering.
@@ -22,7 +22,6 @@ def extract_definitions(
     Args:
         section: lxml Element section to extract from
         excluded_sections: Set of section names to exclude
-        debug: Enable debug logging
 
     Returns:
         Dictionary of part-of-speech -> definitions
@@ -32,8 +31,7 @@ def extract_definitions(
     # Early check: If there are no ordered lists, there are probably no definitions
     ol_elements = section.xpath(".//ol")
     if len(ol_elements) == 0:
-        if debug:
-            logging.debug("No ordered lists found in section, skipping")
+        logging.debug("No ordered lists found in section, skipping")
         return definitions
 
     # Handle multiple potential part-of-speech section levels (2, 3, 4)
@@ -48,8 +46,7 @@ def extract_definitions(
         section.xpath(f".//{DETAILS_TAG}[@{DATA_LEVEL_ATTR}='4']")
     )  # Other variants
 
-    if debug:
-        logging.debug(f"Found {len(pos_sections)} potential part-of-speech sections")
+    logging.debug(f"Found {len(pos_sections)} potential part-of-speech sections")
 
     # If no details found, try to find h3/h4 elements directly (English Wiktionary)
     if len(pos_sections) == 0:
@@ -59,10 +56,9 @@ def extract_definitions(
             pos_section = extract_virtual_section(heading)
             if pos_section is not None:
                 pos_sections.append(pos_section)
-                if debug:
-                    logging.debug(
-                        f"Created virtual section for: {get_text_content(heading)}"
-                    )
+                logging.debug(
+                    f"Created virtual section for: {get_text_content(heading)}"
+                )
 
     for pos_section in pos_sections:
         heading_elements = pos_section.xpath(".//*[self::h2 or self::h3 or self::h4]")
@@ -74,15 +70,13 @@ def extract_definitions(
 
         # Early filtering: Skip excluded sections immediately
         if any(excluded.lower() in pos.lower() for excluded in excluded_sections):
-            if debug:
-                logging.debug(f"Skipping excluded section: {pos}")
+            logging.debug(f"Skipping excluded section: {pos}")
             continue
 
         # Early check: Skip sections without ordered lists (no definitions)
         ol_lists = pos_section.xpath(".//ol")
         if len(ol_lists) == 0:
-            if debug:
-                logging.debug(f"No definition lists found in section: {pos}")
+            logging.debug(f"No definition lists found in section: {pos}")
             continue
 
         # Extract definition items
@@ -96,7 +90,6 @@ def extract_definitions(
         # Only add non-empty definitions
         if len(def_items) > 0:
             definitions[pos] = def_items
-            if debug:
-                logging.debug(f"Added {len(def_items)} definitions for section: {pos}")
+            logging.debug(f"Added {len(def_items)} definitions for section: {pos}")
 
     return definitions

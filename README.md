@@ -117,7 +117,6 @@ WPBD (Wiktionary PocketBook Dictionary) transforms Wiktionary content from Kiwix
    - `--excluded-sections`: Sections to exclude from extraction (default: Translations, Miscellany, See also, etc.)
    - `--scripts`: Filter files by writing system (e.g., latin, cyrillic, greek, chinese, japanese)
    - `--debug`: Enable detailed debug logging
-   - `--profile`: Enable performance profiling
 
 ### Performance Considerations
 

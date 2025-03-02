@@ -5,18 +5,16 @@ Main entry point for the Wiktionary converter.
 
 import argparse
 import multiprocessing
-import os
-import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
-
+import logging
 from tqdm import tqdm
 
 from .parsers import parse_html_file, find_language_section
 from .extractors import extract_definitions
 from .formatters import format_entry, open_output_file, write_header, write_footer
-from .utils import setup_logger, log_timing, is_file_in_scripts
+from .utils import setup_logger, is_file_in_scripts
 from .config import DEFAULT_EXCLUDED_SECTIONS, LANGUAGE_NAMES, SCRIPT_RANGES
 
 
@@ -115,7 +113,6 @@ def process_file(
     file_path: Path,
     source_lang: str,
     entry_lang: Optional[str] = None,
-    debug: bool = False,
 ) -> Optional[Dict]:
     """
     Process a single file and extract definitions.
@@ -125,8 +122,6 @@ def process_file(
         source_lang: Language code of the Wiktionary (e.g., 'en' for English Wiktionary)
         entry_lang: Language code of entries to extract (e.g., 'ru' for Russian entries)
                     If None, extracts entries for the source language
-        debug: Enable debug logging
-        profile: Enable performance profiling
 
     Returns:
         Dictionary with word and definitions or None if no valid content
@@ -141,26 +136,23 @@ def process_file(
     # Extract the language section using the flexible detection
     lang_code = entry_lang if entry_lang else source_lang
 
-    if debug:
-        print(f"Looking for language section: {lang_code}")
+    logging.debug(f"Looking for language section: {lang_code}")
 
     lang_section = find_language_section(tree, lang_code)
 
     if lang_section is None:
-        if debug:
-            print(
-                f"No language section found for {file_path} with lang_code {lang_code}"
-            )
+        logging.debug(
+            f"No language section found for {file_path} with lang_code {lang_code}"
+        )
         return None
 
     # Extract definitions
     excluded_sections = DEFAULT_EXCLUDED_SECTIONS
 
-    definitions = extract_definitions(lang_section, excluded_sections, debug)
+    definitions = extract_definitions(lang_section, excluded_sections)
 
     if not definitions:
-        if debug:
-            print(f"No definitions found for {file_path}")
+        logging.debug(f"No definitions found for {file_path}")
         return None
 
     result = {"word": word, "definitions": definitions}
@@ -173,13 +165,12 @@ def process_file_batch(
     source_lang: str,
     entry_lang: Optional[str],
     num_workers: int,
-    debug: bool = False,
 ) -> List[Dict]:
     """Process a batch of files in parallel and return the entries."""
     with multiprocessing.Pool(processes=num_workers) as pool:
         results = pool.map(
             process_file_wrapper,
-            [(f, source_lang, entry_lang, debug) for f in file_batch],
+            [(f, source_lang, entry_lang) for f in file_batch],
         )
 
     return [entry for entry in results if entry is not None]
@@ -196,69 +187,59 @@ def get_language_name(lang_code):
 
 def main():
     """Main processing pipeline."""
+
+    # Setup
+    start_time = time.time()
     args = parse_arguments()
 
-    # Setup logging based on debug flag
     setup_logger(args.debug)
-
-    # Ensure multiprocessing works correctly on all platforms
-    if os.name == "nt":  # Windows specific fix
-        multiprocessing.freeze_support()
-
-    start_time = time.time()
 
     input_dir = Path(args.input)
     output_file = Path(args.output)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Setup temp directory
-    temp_dir = args.temp_dir if args.temp_dir else tempfile.gettempdir()
-    os.makedirs(temp_dir, exist_ok=True)
-
     # Get all files without extensions (ignoring hidden files)
+    logging.info("Getting all files")
     all_files = [
         f
         for f in input_dir.iterdir()
         if f.is_file() and not f.suffix and not f.name.startswith(".")
     ]
-    print(f"Found {len(all_files)} files in total")
+    logging.info(f"Found {len(all_files)} files in total")
 
     # Filter files by script if needed
     script_start_time = time.time()
     if "all" not in args.scripts:
-        print(f"Filtering files by scripts: {', '.join(args.scripts)}")
+        logging.info(f"Filtering files by scripts: {', '.join(args.scripts)}")
 
         # Apply script filtering
         files = [f for f in all_files if is_file_in_scripts(f.name, args.scripts)]
 
-        print(f"After script filtering: {len(files)} files remaining")
+        logging.info(f"After script filtering: {len(files)} files remaining")
     else:
         files = all_files
-        print("Processing all scripts")
-
-    if args.profile:
-        script_time = time.time() - script_start_time
-        log_timing("Script filtering", script_time)
+        logging.info("Processing all scripts")
 
     # Apply limit if specified
     if args.limit > 0 and args.limit < len(files):
         files = files[: args.limit]
-        print(f"Limiting to first {args.limit} files")
+        logging.info(f"Limiting to first {args.limit} files")
 
     # Determine language to extract
     if args.entry_lang:
-        print(
+        logging.info(
             f"Extracting {get_language_name(args.entry_lang)} entries from {get_language_name(args.source_lang)} Wiktionary"
         )
     else:
-        print(f"Extracting {get_language_name(args.source_lang)} entries")
+        logging.info(f"Extracting {get_language_name(args.source_lang)} entries")
 
     # Sort files alphabetically by filename (which is the word)
+    logging.info("Sorting files")
     files.sort(key=lambda f: f.name.lower())
 
     # Number of worker processes
     num_workers = min(args.jobs, len(files))
-    print(f"Using {num_workers} parallel processes")
+    logging.info(f"Using {num_workers} parallel processes")
 
     # Prepare output file
     with open_output_file(str(output_file)) as f:
@@ -285,8 +266,9 @@ def main():
         ]
 
         for i, batch in enumerate(tqdm(file_batches, desc="Processing files")):
-            batch_start = time.time()
-            print(f"Processing batch {i+1}/{len(file_batches)} ({len(batch)} files)")
+            logging.info(
+                f"Processing batch {i+1}/{len(file_batches)} ({len(batch)} files)"
+            )
 
             # Process this batch of files
             entries = process_file_batch(
@@ -294,11 +276,9 @@ def main():
                 args.source_lang,
                 args.entry_lang,
                 num_workers,
-                args.debug,
             )
 
             # Write entries directly to the output file
-            writing_start = time.time()
             for entry in entries:
                 f.write(format_entry(entry, args.format))
 
@@ -309,7 +289,7 @@ def main():
             processed_files += len(entries)
             skipped_files += len(batch) - len(entries)
 
-            print(
+            logging.info(
                 f"Batch {i+1}: {len(entries)} processed, {len(batch) - len(entries)} skipped"
             )
 
@@ -317,10 +297,10 @@ def main():
         write_footer(f, args.format)
 
     total_time = time.time() - start_time
-    print(f"Total: Processed {processed_files} files successfully")
-    print(f"Total: Skipped {skipped_files} files (no valid content or errors)")
-    print(f"Successfully wrote {args.format.upper()} file to {output_file}")
-    print(f"Total execution time: {total_time:.2f}s")
+    logging.info(f"Total: Processed {processed_files} files successfully")
+    logging.info(f"Total: Skipped {skipped_files} files (no valid content or errors)")
+    logging.info(f"Successfully wrote {args.format.upper()} file to {output_file}")
+    logging.info(f"Total execution time: {total_time:.2f}s")
 
 
 if __name__ == "__main__":

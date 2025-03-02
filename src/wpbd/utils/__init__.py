@@ -8,7 +8,7 @@ from .scripts import (
     get_word_script,
     is_file_in_scripts,
 )
-from .logging import setup_logger, log_timing
+from .logging import setup_logger
 
 __all__ = [
     "clean_text",
@@ -18,5 +18,4 @@ __all__ = [
     "get_word_script",
     "is_file_in_scripts",
     "setup_logger",
-    "log_timing",
 ]
