@@ -1,6 +1,5 @@
 # Wiktionary to PocketBook Dictionary Converter
-
-Tansforms Wiktionary content from Kiwix zim files into a PocketBook dictionary.
+Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible dictionaries in either Lingvo DSL or XDXF format.
 
 ## System Requirements
 - Linux-based operating system
@@ -18,7 +17,7 @@ Tansforms Wiktionary content from Kiwix zim files into a PocketBook dictionary.
 /
 ├── converter/           # Converter.exe, language directories, Instruction.rtf
 ├── data/                # Zim files and dumped data
-├── dict/                # Processed .dsl files and final dictionary outputs
+├── dict/                # Processed .dsl and .xdxf files and final dictionary outputs
 └── src/                 # Python scripts (e.g., main.py) for data processing
 ```
 
@@ -27,9 +26,9 @@ Tansforms Wiktionary content from Kiwix zim files into a PocketBook dictionary.
 ### Setting Up the Environment
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/yourusername/yourprojectname
+   git clone https://github.com/omfmartin/pocket-book-dictionary
+   cd pocket-book-dictionary
    ```
-
 2. **Create a Virtual Environment**
    ```bash
    python3 -m venv venv
@@ -49,21 +48,47 @@ Tansforms Wiktionary content from Kiwix zim files into a PocketBook dictionary.
    ```
 
 3. **Process the HTML Files**
+   
+   You can choose between two output formats:
+   
+   **For Lingvo DSL format (default):**
    ```bash
-   python src/main.py -i data/ca/ -o dict/ca.dsl -s ca -t ca
+   python src/main.py -i data/ca/A -o dict/ca.dsl -s ca -t ca -f lingvo
    ```
-   This creates a .dsl dictionary file from the extracted HTML content.
+   
+   **For XDXF format:**
+   ```bash
+   python src/main.py -i data/ca/A -o dict/ca.xdxf -s ca -t ca -f xdxf
+   ```
+   
+   Parameters:
+   - `-i, --input`: Input directory containing HTML files
+   - `-o, --output`: Output file path (.dsl or .xdxf extension recommended)
+   - `-s, --source-lang`: Source language code (e.g., ca for Catalan)
+   - `-t, --target-lang`: Target language code for translations (optional)
+   - `-n, --name`: Dictionary name (default: "Wiktionary Dictionary")
+   - `-f, --format`: Output format, either "lingvo" (default) or "xdxf"
 
 ### Conversion to PocketBook Format
+
 1. **Run the Converter**
+   
+   The PocketBook converter tool supports both DSL and XDXF formats:
+   
+   For Lingvo DSL files:
    ```bash
    wine converter/converter.exe dict/ca.dsl converter/ca
    ```
-   Output files will be generated in `converter/ca` directory.
+   
+   For XDXF files:
+   ```bash
+   wine converter/converter.exe dict/ca.xdxf converter/ca
+   ```
+   
+   Output files will be generated in the `converter/ca` directory in both cases.
 
-2. **Deploy to Your E-Reader**
-   - Connect your PocketBook via USB
-   - Copy the generated files to `system/dictionaries` on your device
-   - Eject safely and restart your device
-   - Access your new dictionary through the PocketBook dictionary interface
-
+### Deploy to Your E-Reader
+- Connect your PocketBook via USB
+- Copy the generated files to `system/dictionaries` on your device
+- Eject safely and restart your device
+- Access your new dictionary through the PocketBook dictionary interface

@@ -1,10 +1,12 @@
 import re
 import argparse
+import html
 from typing import Optional, Dict, List
 from pathlib import Path
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import logging
+import codecs  # Import for explicit encoding handling
 
 
 def setup_logger():
@@ -19,12 +21,12 @@ def setup_logger():
 def parse_arguments():
     """Parse command-line arguments using argparse."""
     parser = argparse.ArgumentParser(
-        description="Convert Wiktionary HTML files to Lingvo DSL format"
+        description="Convert Wiktionary HTML files to dictionary formats"
     )
     parser.add_argument(
         "-i", "--input", required=True, help="Input directory containing files"
     )
-    parser.add_argument("-o", "--output", required=True, help="Output DSL file path")
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
         "-s",
         "--source-lang",
@@ -35,6 +37,19 @@ def parse_arguments():
         "-t",
         "--target-lang",
         help="Target language code for translations",
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        default="Wiktionary Dictionary",
+        help="Dictionary name",
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["lingvo", "xdxf"],
+        default="xdxf",
+        help="Output format",
     )
     return parser.parse_args()
 
@@ -116,16 +131,63 @@ def clean_text(text: str) -> str:
 
 def format_lingvo_entry(entry: dict) -> str:
     """Format a dictionary entry into Lingvo DSL format."""
-    lines = [entry["word"]]
+    lines = [entry["word"].replace("_", " ")]
     for pos, defs in entry["definitions"].items():
-        # Add part of speech with markup
-        lines.append(f"  [m1]{pos}[/m]")
+        # Add part of speech with standard DSL markup
+        lines.append(f"  [c]{pos}[/c]")
         # Add definitions
         for d in defs:
             lines.append(f"  {d}")
     # Add empty line to separate entries
     lines.append("")
     return "\n".join(lines)
+
+
+def format_xdxf_entry(entry: dict) -> str:
+    """Format a dictionary entry into XDXF format."""
+    word = html.escape(entry["word"].replace("_", " "))
+    lines = [f"<ar><k>{word}</k>"]
+
+    for pos, defs in entry["definitions"].items():
+        # Add part of speech
+        lines.append(f"<pos>{html.escape(pos)}</pos>")
+        # Add definitions with each in its own def tag
+        for d in defs:
+            lines.append(f"<def>{html.escape(d)}</def>")
+
+    lines.append("</ar>")
+    return "\n".join(lines)
+
+
+def write_dsl_header(f, dict_name, source_lang, target_lang):
+    """Write properly formatted DSL header with charset information."""
+    f.write(f'#NAME "{dict_name}"\n')
+    f.write(f'#INDEX_LANGUAGE "{source_lang}"\n')
+    f.write(f'#CONTENTS_LANGUAGE "{target_lang if target_lang else source_lang}"\n')
+    f.write("#CHARSET UTF-8\n")
+    f.write("\n")
+
+
+def write_xdxf_header(f, dict_name, source_lang, target_lang):
+    """Write properly formatted XDXF header."""
+    f.write('<?xml version="1.0" encoding="UTF-8" ?>\n')
+    f.write(
+        '<!DOCTYPE xdxf SYSTEM "https://raw.github.com/soshial/xdxf_makedict/master/format_standard/xdxf_strict.dtd">\n'
+    )
+    f.write(
+        f'<xdxf lang_from="{source_lang.lower()}" lang_to="{(target_lang if target_lang else source_lang).lower()}" format="visual">\n'
+    )
+    f.write(f"<full_name>{dict_name}</full_name>\n")
+    f.write("<description>Converted from Wiktionary</description>\n")
+    f.write("<abbreviations>\n")
+    f.write("</abbreviations>\n")
+    f.write("<xdxf_body>\n")
+
+
+def write_xdxf_footer(f):
+    """Write XDXF footer."""
+    f.write("</xdxf_body>\n")
+    f.write("</xdxf>\n")
 
 
 def main():
@@ -157,17 +219,62 @@ def main():
     logging.info(f"Skipped {skipped_files} files (no valid content or errors)")
 
     try:
-        with open(output_file, "w", encoding="utf-8") as f:
-            # Write DSL header
-            f.write(f"# Language: {args.source_lang}\n")
-            f.write(f"# Target Language: {args.target_lang}\n\n")
+        with codecs.open(str(output_file), "w", encoding="utf-8") as f:
+            # Get full language names
+            source_lang_full = get_language_name(args.source_lang)
+            target_lang_full = (
+                get_language_name(args.target_lang)
+                if args.target_lang
+                else source_lang_full
+            )
+            dict_name = f"{args.name} ({source_lang_full}-{target_lang_full})"
 
-            # Write entries
-            for entry in entries:
-                f.write(format_lingvo_entry(entry) + "\n")
-        logging.info(f"Successfully wrote Lingvo DSL file to {output_file}")
+            # Sort entries alphabetically
+            entries.sort(key=lambda x: x["word"].lower())
+
+            # Write appropriate header and format entries based on the selected format
+            if args.format == "lingvo":
+                # Write Lingvo DSL header
+                write_dsl_header(f, dict_name, source_lang_full, target_lang_full)
+
+                # Write entries in Lingvo format
+                for entry in entries:
+                    f.write(format_lingvo_entry(entry))
+
+                logging.info(f"Successfully wrote Lingvo DSL file to {output_file}")
+
+            elif args.format == "xdxf":
+                # Write XDXF header
+                write_xdxf_header(f, dict_name, source_lang_full, target_lang_full)
+
+                # Write entries in XDXF format
+                for entry in entries:
+                    f.write(format_xdxf_entry(entry) + "\n")
+
+                # Write XDXF footer
+                write_xdxf_footer(f)
+
+                logging.info(f"Successfully wrote XDXF file to {output_file}")
+
     except IOError as e:
         logging.error(f"Failed to write output file: {str(e)}")
+
+
+def get_language_name(lang_code):
+    """Convert language code to full language name."""
+    language_names = {
+        "ca": "Catalan",
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "oc": "Occitan",
+        # Add more languages as needed
+    }
+    return language_names.get(lang_code, lang_code.capitalize())
 
 
 if __name__ == "__main__":
