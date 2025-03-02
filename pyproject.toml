@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wpbd"
+version = "0.1.0"
+description = "Convert Wiktionary HTML files to dictionary formats for PocketBook e-readers"
+authors = [{ name = "Olivier MF Martin" }]
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+
+[project.scripts]
+wpbd = "wpbd.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["wpbd", "wpbd.utils"]
