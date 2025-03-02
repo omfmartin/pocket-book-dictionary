@@ -1,7 +1,7 @@
 import re
 import argparse
 import html
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -31,12 +31,18 @@ def parse_arguments():
         "-s",
         "--source-lang",
         required=True,
-        help="Source language code (e.g., ca for Catalan)",
+        help="Source language code of the Wiktionary (e.g., en for English Wiktionary)",
     )
     parser.add_argument(
         "-t",
         "--target-lang",
-        help="Target language code for translations",
+        required=True,
+        help="Target language code to extract (e.g., ru for Russian entries)",
+    )
+    parser.add_argument(
+        "-e",
+        "--entry-lang",
+        help="Language of entries to extract (if different from source-lang). Use this to extract specific language entries.",
     )
     parser.add_argument(
         "-n",
@@ -54,8 +60,18 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def process_file(file_path: Path, lang_code: str) -> Optional[dict]:
-    """Process a single file and extract definitions for the specified language."""
+def process_file(
+    file_path: Path, source_lang: str, entry_lang: Optional[str] = None
+) -> Optional[Dict]:
+    """
+    Process a single file and extract definitions.
+
+    Args:
+        file_path: Path to the HTML file
+        source_lang: Language code of the Wiktionary (e.g., 'en' for English Wiktionary)
+        entry_lang: Language code of entries to extract (e.g., 'ru' for Russian entries)
+                    If None, extracts entries for the source language
+    """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             soup = BeautifulSoup(f, "html.parser")
@@ -64,13 +80,23 @@ def process_file(file_path: Path, lang_code: str) -> Optional[dict]:
         return None
 
     word = file_path.name  # Use the full filename as the word
-    lang_section = extract_language_section(soup, lang_code)
 
-    if not lang_section:
-        return None
+    # If entry_lang is specified, extract only entries for that language
+    if entry_lang:
+        lang_section = extract_language_section(soup, entry_lang)
+        if not lang_section:
+            return None
 
-    definitions = extract_definitions(lang_section)
-    return {"word": word, "definitions": definitions} if definitions else None
+        definitions = extract_definitions(lang_section)
+        return {"word": word, "definitions": definitions} if definitions else None
+    else:
+        # Default behavior: extract entries for the source language
+        lang_section = extract_language_section(soup, source_lang)
+        if not lang_section:
+            return None
+
+        definitions = extract_definitions(lang_section)
+        return {"word": word, "definitions": definitions} if definitions else None
 
 
 def extract_language_section(
@@ -163,7 +189,7 @@ def write_dsl_header(f, dict_name, source_lang, target_lang):
     """Write properly formatted DSL header with charset information."""
     f.write(f'#NAME "{dict_name}"\n')
     f.write(f'#INDEX_LANGUAGE "{source_lang}"\n')
-    f.write(f'#CONTENTS_LANGUAGE "{target_lang if target_lang else source_lang}"\n')
+    f.write(f'#CONTENTS_LANGUAGE "{target_lang}"\n')
     f.write("#CHARSET UTF-8\n")
     f.write("\n")
 
@@ -175,7 +201,7 @@ def write_xdxf_header(f, dict_name, source_lang, target_lang):
         '<!DOCTYPE xdxf SYSTEM "https://raw.github.com/soshial/xdxf_makedict/master/format_standard/xdxf_strict.dtd">\n'
     )
     f.write(
-        f'<xdxf lang_from="{source_lang.lower()}" lang_to="{(target_lang if target_lang else source_lang).lower()}" format="visual">\n'
+        f'<xdxf lang_from="{source_lang.lower()}" lang_to="{target_lang.lower()}" format="visual">\n'
     )
     f.write(f"<full_name>{dict_name}</full_name>\n")
     f.write("<description>Converted from Wiktionary</description>\n")
@@ -207,27 +233,46 @@ def main():
     files = [f for f in input_dir.iterdir() if f.is_file() and not f.suffix]
     logging.info(f"Found {len(files)} files to process")
 
+    # Determine language to extract
+    entry_lang = args.entry_lang if args.entry_lang else args.source_lang
+
+    if args.entry_lang:
+        logging.info(
+            f"Extracting {get_language_name(args.entry_lang)} entries from {get_language_name(args.source_lang)} Wiktionary"
+        )
+    else:
+        logging.info(f"Extracting {get_language_name(args.source_lang)} entries")
+
     for file_path in tqdm(files, desc="Processing files"):
-        entry = process_file(file_path, args.source_lang)
+        entry = process_file(file_path, args.source_lang, args.entry_lang)
         if entry:
             entries.append(entry)
             processed_files += 1
         else:
             skipped_files += 1
 
+        if processed_files == 10:
+            break
+
     logging.info(f"Processed {processed_files} files successfully")
     logging.info(f"Skipped {skipped_files} files (no valid content or errors)")
+
+    if processed_files == 0:
+        logging.warning(f"No valid entries found. Check your language codes.")
+        return
 
     try:
         with codecs.open(str(output_file), "w", encoding="utf-8") as f:
             # Get full language names
             source_lang_full = get_language_name(args.source_lang)
-            target_lang_full = (
-                get_language_name(args.target_lang)
-                if args.target_lang
-                else source_lang_full
-            )
-            dict_name = f"{args.name} ({source_lang_full}-{target_lang_full})"
+            target_lang_full = get_language_name(args.target_lang)
+
+            # If extracting specific language entries, use that in the dictionary name
+            if args.entry_lang:
+                entry_lang_full = get_language_name(args.entry_lang)
+                dict_name = f"{args.name} ({entry_lang_full}-{target_lang_full})"
+            else:
+                dict_name = f"{args.name} ({source_lang_full}-{target_lang_full})"
 
             # Sort entries alphabetically
             entries.sort(key=lambda x: x["word"].lower())

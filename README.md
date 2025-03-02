@@ -1,5 +1,5 @@
 # Wiktionary to PocketBook Dictionary Converter
-Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible dictionaries in either Lingvo DSL or XDXF format.
+Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible dictionaries in either Lingvo DSL or XDXF format. Supports extracting entries for specific languages (e.g., extracting only Russian entries from English Wiktionary).
 
 ## System Requirements
 - Linux-based operating system
@@ -44,33 +44,34 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
 
 2. **Extract Zim Content**
    ```bash
-   zimdump dump --dir=data/ca data/wiktionary_ca_all_maxi_2024-06.zim
+   zimdump dump --dir=data/ca data/raw/wiktionary_ca_all_maxi_2024-06.zim
    ```
 
 3. **Process the HTML Files**
    
-   You can choose between two output formats:
+   You can choose between two output formats and specify which language entries to extract:
    
-   **For Lingvo DSL format (default):**
+   **Standard dictionary for single language:**
    ```bash
    python src/main.py -i data/ca/A -o dict/ca.dsl -s ca -t ca -f lingvo
    ```
    
-   **For XDXF format:**
+   **Extract specific language entries from a different Wiktionary:**
    ```bash
-   python src/main.py -i data/ca/A -o dict/ca.xdxf -s ca -t ca -f xdxf
+   python src/main.py -i data/en/A -o dict/ru_from_en.xdxf -s en -t ru -e ru -f xdxf
    ```
+   This example extracts Russian entries from English Wiktionary files.
    
-   Parameters:
+   **Parameters:**
    - `-i, --input`: Input directory containing HTML files
    - `-o, --output`: Output file path (.dsl or .xdxf extension recommended)
-   - `-s, --source-lang`: Source language code (e.g., ca for Catalan)
-   - `-t, --target-lang`: Target language code for translations (optional)
+   - `-s, --source-lang`: Source language code of the Wiktionary (e.g., en for English Wiktionary)
+   - `-t, --target-lang`: Target language code for translations
+   - `-e, --entry-lang`: Language of entries to extract (optional, use to extract specific language entries)
    - `-n, --name`: Dictionary name (default: "Wiktionary Dictionary")
-   - `-f, --format`: Output format, either "lingvo" (default) or "xdxf"
+   - `-f, --format`: Output format, either "lingvo" or "xdxf" (default is xdxf)
 
 ### Conversion to PocketBook Format
-
 1. **Run the Converter**
    
    The PocketBook converter tool supports both DSL and XDXF formats:
