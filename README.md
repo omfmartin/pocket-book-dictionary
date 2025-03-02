@@ -60,7 +60,7 @@ Transforms Wiktionary content from Kiwix zim files into PocketBook-compatible di
    
    **Standard dictionary for single language:**
    ```bash
-   python src/main.py -i data/ca/A -o dict/ca.dsl -s ca -t ca -f lingvo
+   python src/main.py -i data/ca/A -o dict/ca.xdxf -s ca -t ca -f xdxf
    ```
    
    **Extract specific language entries from a different Wiktionary:**
