@@ -74,6 +74,7 @@ def parse_arguments():
         help="Limit the number of files to process (0 for no limit, default: 0)",
     )
     parser.add_argument(
+        "-b",
         "--batch-size",
         type=int,
         default=10000,
@@ -89,8 +90,6 @@ def parse_arguments():
         default=list(DEFAULT_EXCLUDED_SECTIONS),
         help="Sections to exclude from extraction (default: Translations, etc.)",
     )
-
-    # Argument for script filtering
     parser.add_argument(
         "--scripts",
         nargs="+",
