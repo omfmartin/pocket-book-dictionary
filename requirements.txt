@@ -2,3 +2,6 @@ tqdm
 black
 ipdb
 lxml
+mypy
+lxml-stubs
+types-tqdm

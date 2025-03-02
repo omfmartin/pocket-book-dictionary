@@ -17,7 +17,7 @@ from .parsers import parse_html_file, find_language_section
 from .extractors import extract_definitions
 from .formatters import format_entry, open_output_file, write_header, write_footer
 from .utils import setup_logger, log_timing, is_file_in_scripts
-from .config import DEFAULT_EXCLUDED_SECTIONS, LANGUAGE_NAMES
+from .config import DEFAULT_EXCLUDED_SECTIONS, LANGUAGE_NAMES, SCRIPT_RANGES
 
 
 def parse_arguments():
@@ -93,36 +93,14 @@ def parse_arguments():
     parser.add_argument(
         "--scripts",
         nargs="+",
-        choices=list(
-            [
-                "latin",
-                "cyrillic",
-                "greek",
-                "chinese",
-                "japanese",
-                "korean",
-                "arabic",
-                "hebrew",
-                "devanagari",
-                "thai",
-                "all",
-            ]
-        ),
+        choices=["all"] + list(SCRIPT_RANGES.keys()),
         default=["all"],
-        help="Filter files by script (e.g., latin, cyrillic, greek, chinese, japanese)",
+        help="Filter files by script",
     )
-
-    # Debug and profile flags
     parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging for detailed information",
-    )
-
-    parser.add_argument(
-        "--profile",
-        action="store_true",
-        help="Enable timing measurements for performance analysis",
     )
 
     return parser.parse_args()
@@ -138,7 +116,6 @@ def process_file(
     source_lang: str,
     entry_lang: Optional[str] = None,
     debug: bool = False,
-    profile: bool = False,
 ) -> Optional[Dict]:
     """
     Process a single file and extract definitions.
@@ -154,9 +131,6 @@ def process_file(
     Returns:
         Dictionary with word and definitions or None if no valid content
     """
-    if profile:
-        start_time = time.time()
-
     # Parse the HTML file
     tree = parse_html_file(file_path)
     if tree is None:
@@ -170,14 +144,7 @@ def process_file(
     if debug:
         print(f"Looking for language section: {lang_code}")
 
-    if profile:
-        section_start_time = time.time()
-
     lang_section = find_language_section(tree, lang_code)
-
-    if profile:
-        section_time = time.time() - section_start_time
-        log_timing("Language section detection", section_time)
 
     if lang_section is None:
         if debug:
@@ -189,14 +156,7 @@ def process_file(
     # Extract definitions
     excluded_sections = DEFAULT_EXCLUDED_SECTIONS
 
-    if profile:
-        extract_start_time = time.time()
-
     definitions = extract_definitions(lang_section, excluded_sections, debug)
-
-    if profile:
-        extract_time = time.time() - extract_start_time
-        log_timing("Definition extraction", extract_time)
 
     if not definitions:
         if debug:
@@ -204,10 +164,6 @@ def process_file(
         return None
 
     result = {"word": word, "definitions": definitions}
-
-    if profile:
-        total_time = time.time() - start_time
-        log_timing(f"Total processing for {file_path}", total_time)
 
     return result
 
@@ -218,13 +174,12 @@ def process_file_batch(
     entry_lang: Optional[str],
     num_workers: int,
     debug: bool = False,
-    profile: bool = False,
 ) -> List[Dict]:
     """Process a batch of files in parallel and return the entries."""
     with multiprocessing.Pool(processes=num_workers) as pool:
         results = pool.map(
             process_file_wrapper,
-            [(f, source_lang, entry_lang, debug, profile) for f in file_batch],
+            [(f, source_lang, entry_lang, debug) for f in file_batch],
         )
 
     return [entry for entry in results if entry is not None]
@@ -319,12 +274,7 @@ def main():
             dict_name = f"{args.name} ({source_lang_full}-{target_lang_full})"
 
         # Write appropriate header based on the selected format
-        header_start = time.time()
         write_header(f, args.format, dict_name, source_lang_full, target_lang_full)
-
-        if args.profile:
-            header_time = time.time() - header_start
-            log_timing("Header writing", header_time)
 
         # Process files in batches to avoid memory issues
         processed_files = 0
@@ -345,7 +295,6 @@ def main():
                 args.entry_lang,
                 num_workers,
                 args.debug,
-                args.profile,
             )
 
             # Write entries directly to the output file
@@ -356,30 +305,16 @@ def main():
             # Force write to disk after each batch
             f.flush()
 
-            if args.profile:
-                writing_time = time.time() - writing_start
-                log_timing("Batch writing", writing_time)
-
             # Update counters
             processed_files += len(entries)
             skipped_files += len(batch) - len(entries)
 
-            if args.profile:
-                batch_time = time.time() - batch_start
-                log_timing(f"Batch {i+1} processing", batch_time)
-                print(f"Batch {i+1} entries: {len(entries)}")
-            else:
-                print(
-                    f"Batch {i+1}: {len(entries)} processed, {len(batch) - len(entries)} skipped"
-                )
+            print(
+                f"Batch {i+1}: {len(entries)} processed, {len(batch) - len(entries)} skipped"
+            )
 
         # Write footer if needed
-        footer_start = time.time()
         write_footer(f, args.format)
-
-        if args.profile:
-            footer_time = time.time() - footer_start
-            log_timing("Footer writing", footer_time)
 
     total_time = time.time() - start_time
     print(f"Total: Processed {processed_files} files successfully")
